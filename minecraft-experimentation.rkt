@@ -61,7 +61,7 @@
     (if (< (random) 0.1) 1 0))
 
 (define ((level-dirt level) x y z)
-  (cond [(<= level y) 3]
+  (cond [(<= y level) 3]
         [else 0]))
 
 (define (simple-chunk block-maker chunk-x chunk-z tick)
@@ -105,9 +105,14 @@
 
 
 
+(call-with-output-file "/tmp/data"
+  #:exists 'truncate
+  (lambda (port)
+    (block-bytes-display (maker->block-bytes (level-dirt 64)) port)))
+
 
 ;; simple round-trip:
-
+#|
 (define cx -1)
 (define cz -3)
 (define f "/tmp/r.-1.-1.mcr")
@@ -155,3 +160,4 @@
               '(i32 5))
 
 
+|#

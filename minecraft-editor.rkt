@@ -114,10 +114,29 @@
                         absolute-chunk-z
                         update-tick)
   (define max-idx (* CHUNKDX CHUNKDY CHUNKDZ))
-  (define block-bytes (make-bytes max-idx 0))
+  (define block-bytes (maker->block-bytes block-maker))
   (define skylight-bytes (make-bytes (/ max-idx 2) 0))
   (define blocklight-bytes (make-bytes (/ max-idx 2) 0))
   (define extra-data-bytes (make-bytes (/ max-idx 2) 0))
+  (for* ([y (in-range CHUNKDY)]
+         [z (in-range CHUNKDZ)]
+         [x (in-range CHUNKDX)])
+    (define idx (xyz->idx x y z))
+    (half-byte-set! blocklight-bytes x y z 0)
+    (half-byte-set! extra-data-bytes x y z
+                    (extra-data-maker x y z))
+    (half-byte-set! skylight-bytes x y z 
+                    (skylight-maker x y z)))  
+  (wrap-chunk block-bytes skylight-bytes blocklight-bytes extra-data-bytes
+              absolute-chunk-x 
+              absolute-chunk-z
+              update-tick))
+
+(provide/contract [maker->block-bytes (-> (-> nat? nat? nat? nat?)
+                                          bytes?)])
+
+(define (maker->block-bytes maker)
+  (define block-bytes (make-bytes (* CHUNKDX CHUNKDY CHUNKDZ) 0))  
   ;; top layer is all air (already)
   ;; bottom layer all bedrock:
   (for* ([x (in-range CHUNKDX)]
@@ -128,17 +147,8 @@
          [z (in-range CHUNKDZ)]
          [x (in-range CHUNKDX)])
     (define idx (xyz->idx x y z))
-    (half-byte-set! blocklight-bytes x y z 0)
-    (half-byte-set! extra-data-bytes x y z
-                    (extra-data-maker x y z))
-    (regular-byte-set! block-bytes x y z 
-                       (block-maker x y z))
-    (half-byte-set! skylight-bytes x y z 
-                    (skylight-maker x y z)))  
-  (wrap-chunk block-bytes skylight-bytes blocklight-bytes extra-data-bytes
-              absolute-chunk-x 
-              absolute-chunk-z
-              update-tick))
+    (regular-byte-set! block-bytes x y z (maker x y z)))
+  block-bytes)
 
 
 (provide/contract [wrap-chunk (-> bytes? bytes? bytes? bytes? 
@@ -227,8 +237,10 @@
   (define cblocks (second (blocks chunk)))
   (block-bytes-display cblocks port))
 
+
 ;; given the bytes representing a block array and an output port,
 ;; write lines of numbers to the port
+(provide/contract [block-bytes-display (-> bytes? port? void?)])
 (define (block-bytes-display block-bytes out-port)
   (for* ([y (in-range CHUNKDY)]
          [x (in-range CHUNKDX)])
@@ -340,23 +352,17 @@
              (* (* seed 11) z))
           modulus))
 
-(define t
-  (get-field/chain
-   (generate-chunk (make-hashy-xyz-fun 13 256)
-                   (make-hashy-xyz-fun 17 16)
-                   (make-hashy-xyz-fun 19 16)
-                   -45
-                   13
-                   1238298)
-   '("" "Level" "HeightMap")))
+(require "regression-test.rkt")
 
-#;(call-with-output-file "/tmp/regression-test.rktd"
-  (lambda (port)
-    (write
-     (generate-chunk (make-hashy-xyz-fun 13 256)
-                     (make-hashy-xyz-fun 17 16)
-                     (make-hashy-xyz-fun 19 16)
-                     -45
-                     13
-                     1238298)
-     port)))
+(check-equal?
+ ;; I'm using equal? to hide the output. When it fails,
+ ;; rackunit otherwise tries to print everything out,
+ ;; and DrRacket hangs...
+ (equal? (generate-chunk (make-hashy-xyz-fun 13 256)
+                         (make-hashy-xyz-fun 17 16)
+                         (make-hashy-xyz-fun 19 16)
+                         -45
+                         13
+                         1238298)
+         test-out)
+ true)

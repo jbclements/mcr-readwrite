@@ -1,2 +1,13 @@
 This repo contains Racket code for reading/writing minecraft .mcr files.
-It includes a command-line interface.
+It includes a command-line interface, minecraft-cli.rkt.
+
+To build an executable, run
+
+raco exe -o mcr-tool minecraft-cli.rkt
+
+... and then run
+
+mcr-tool --help
+
+for help on the options.
+
