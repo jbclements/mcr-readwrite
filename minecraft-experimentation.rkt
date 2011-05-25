@@ -68,28 +68,21 @@
   (generate-chunk block-maker zero zero
                   chunk-x chunk-z tick))
 
-(define (stair-blocks chunk-x chunk-z tick)
-  (define (block-maker x y z)
-    (cond [(and (< 4 x 8) (< z 8) (= y 63)) 24]
-          [(< x 3) 0]
-          [(>= x 13) 0]
-          [(< z 3) 0]
-          [(>= z 13) 0]
-          [(and (< x 7) (< z 9)) (cond [(= (modulo y 4) 1) 24]
+(define (stair-block-maker x y z)
+  (cond [(and (< 4 x 8) (< z 8) (= y 63)) 24]
+        [(< x 3) 0]
+        [(>= x 13) 0]
+        [(< z 3) 0]
+        [(>= z 13) 0]
+        [(and (< x 7) (< z 9)) (cond [(= (modulo y 4) 1) 24]
+                                     [else 0])]
+        [(and (< x 9) (>= z 9)) (cond [(= (modulo y 4) 2) 24]
+                                      [else 0])]
+        [(and (>= x 9) (>= z 7)) (cond [(= (modulo y 4) 3) 24]
                                        [else 0])]
-          [(and (< x 9) (>= z 9)) (cond [(= (modulo y 4) 2) 24]
-                                         [else 0])]
-          [(and (>= x 9) (>= z 7)) (cond [(= (modulo y 4) 3) 24]
-                                       [else 0])]
-          [(and (>= x 7) (< z 7)) (cond [(= (modulo y 4) 0) 24]
-                                       [else 0])]
-          [else 0]))
-  (generate-chunk block-maker
-                  zero
-                  zero
-                  chunk-x
-                  chunk-z
-                  tick))
+        [(and (>= x 7) (< z 7)) (cond [(= (modulo y 4) 0) 24]
+                                      [else 0])]
+        [else 0]))
 
 (define (heightmap chunk)
   (get-field/chain chunk '("" "Level" "HeightMap")))
@@ -108,7 +101,7 @@
 (call-with-output-file "/tmp/data"
   #:exists 'truncate
   (lambda (port)
-    (block-bytes-display (maker->block-bytes (level-dirt 64)) port)))
+    (block-bytes-display (maker->block-bytes stair-block-maker) port)))
 
 
 ;; simple round-trip:
