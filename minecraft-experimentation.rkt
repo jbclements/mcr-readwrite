@@ -73,15 +73,9 @@
                                       [else 0])]
         [else 0]))
 
-(define (heightmap chunk)
-  (get-field/chain chunk '("" "Level" "HeightMap")))
-
-(define (blocks chunk)
-  (get-field/chain chunk '("" "Level" "Blocks")))
-
 
 (define (vslice chunk x z ymin ymax)
-  (define cblocks (second (blocks chunk)))
+  (define cblocks (second (get-field/chain chunk '("" "Level" "Blocks"))))
   (for/list ([y (in-range ymin ymax)])
     (regular-byte-ref cblocks x y z)))
 
@@ -98,12 +92,54 @@
 (define player-data `(compound ,(parse-player-file (build-path save-dir "level.dat"))))
 
 (define player-pos (get-field/chain player-data '("" "Data" "Player" "Pos")))
-(define abs-x (posn->chunk (third player-pos)))
-(define abs-z (floor (/ (second (fifth player-pos)) 16)))
+(define abs-x (posn->chunk (second (third player-pos))))
+(define abs-z (posn->chunk (second (fifth player-pos))))
 
-(define region (floor))
 
-(define northern-chunk ())
+(define (hollow-out cx cz)
+  (printf "hollowing out ~s, ~s\n" cx  cz)
+  (define northern-chunk (chunk-read/dir save-dir cx cz))
+  
+  (define killed-block-types (list 1 3))
+  ;; either air, or things that will fall if unsupported:
+  (define preserve-next-to-types (list 0 8 9 10 11 12 13))
+  (define pre-blocks (second (get-field/chain northern-chunk '("" "Level" "Blocks"))))
+  (define post-blocks (make-bytes (* 16 16 128) 0))
+  
+  
+  (define (adjoins-preserved? x y z pre-blocks)
+    (for*/or ([dx (in-range -1 2)]
+              [dy (in-range -1 2)]
+              [dz (in-range -1 2)]
+              #:when (and (<= 0 (+ dx x) 15)
+                          (<= 0 (+ dy y) 15)
+                          (<= 0 (+ dz z) 15)
+                          (not (= 1 dx dy dz))))
+      (member (regular-byte-ref pre-blocks (+ x dx) (+ y dy) (+ z dz))
+              preserve-next-to-types)))
+  
+  (for* ([x (in-range 16)]
+         [y (in-range 128)]
+         [z (in-range 16)])
+    (define existing (regular-byte-ref pre-blocks x y z))
+    (cond [(or (not (member existing killed-block-types))
+               (adjoins-preserved? x y z pre-blocks))
+           (regular-byte-set! post-blocks x y z 
+                              (regular-byte-ref pre-blocks x y z))]
+          [else ;; leave it as air...
+           (void)]))
+  
+  (define new-chunk (set-field/chain northern-chunk '("" "Level" "Blocks")
+                                     (lambda (dc) `(bytearray ,post-blocks))))
+  
+  (rip-out-bytearrays new-chunk)
+  
+  (chunk-overwrite/dir save-dir cx cz new-chunk))
+
+(for* ([x (in-range (- abs-x 2) (+ abs-x 3))]
+       [z (in-range (- abs-z 2) (+ abs-z 3))])
+  (hollow-out x z))
+
 
 
 

@@ -7,8 +7,6 @@
 
 ;; I'm guessing we're using utf-8 encodings, or just sticking to ASCII
 
-
-
 (require file/gunzip
          (planet soegaard/gzip))
 
@@ -47,20 +45,31 @@
   (list/c 'compound
           (list/c 'named "" mc-thing?)))
 
-(provide mc-thing? named-mc-thing?)
+(provide mc-thing? named-mc-thing? blank-compound-mc-thing?)
 
 
 ;; FILE I/O
 
+(define CHUNKSPERREGION 32)
+
 (provide/contract [chunk-read (-> path-string? nat? nat? blank-compound-mc-thing?)]
+                  [toc-read (-> path-string? (listof (listof boolean?)))]
                   [chunk-timestamp/file (-> path-string? nat? nat? nat?)]
-                  [overwrite-chunk (-> path-string? 
+                  [chunk-overwrite (-> path-string? 
                                        nat?
                                        nat?
                                        blank-compound-mc-thing?
                                        void?)]
-                  [parse-player-file (-> path-string? named-mc-thing?)])
+                  [parse-player-file (-> path-string? named-mc-thing?)]
+                  [parse-tag (-> input-port? named-mc-thing?)]
+                  [write-tag (-> named-mc-thing? output-port? void?)])
 
+;; given the file name, return a 2d list of which chunks are allocated
+(define (toc-read path)
+  (define header (file-header path))
+  (for*/list ([x (in-range CHUNKSPERREGION)])
+    (for/list ([z (in-range CHUNKSPERREGION)])
+      (not (= 0 (chunk-length header x z))))))
 
 ;; path-string? nat? nat? -> named-thing
 ;; given a filename and two *relative* integers, read the
@@ -79,7 +88,7 @@
 ;; given a file and the *relative* x and z of a chunk and a new chunk, 
 ;; replace the old one with the new one (if it fits in the space
 ;; allocated for the old one).
-(define (overwrite-chunk file x z new-chunk)
+(define (chunk-overwrite file x z new-chunk)
   (match-let* ([(list posn space)(file-chunk-info file x z)])
     (when (= posn 0)
       (error 'chunk-read/bytes
@@ -340,57 +349,9 @@
                  out-port))
   
   
-  (write-named parsed))
+  (write-named parsed)
+  (void))
 
 
-;; round-trip tests
-
-(define (round-trip parsed)
-  (define-values (in-port out-port) (make-pipe))
-  (write-tag parsed out-port)
-  (parse-tag in-port))
-
-(check-equal? (round-trip '(named "foo" (i8 13))) '(named "foo" (i8 13)))
-(check-exn exn:fail? 
-           (lambda () (round-trip '(named "z" (i16 12341230897)))))
-(check-equal? (round-trip '(named "q" (i16 234))) '(named "q" (i16 234)))
-(check-equal? (round-trip '(named "i" (bytearray #"trogdor")))
-              '(named "i" (bytearray #"trogdor")))
-
-(define big-fat-example
-  `(named "ohth" (compound (named "floozy" (i8 23))
-                           (named "bo" (i16 2231))
-                           (named "oo" (string "zagga-wagga"))
-                           (named "ff" (f32 3.125))
-                           (named "gg" (f64 2.7872901))
-                           (named "hh" (i32 -22798))
-                           (named "ii" (i64 2982739710982))
-                           (named "oth" (bytearray #"ontho nteh"))
-                           (named "com" (compound (named "bongo" (string "bill"))
-                                                  (named "boingo" (i8 23))))
-                           (named "blug" (list i8
-                                               (i8 13)
-                                               (i8 14)
-                                               (i8 187))))))
-
-(check-equal? (round-trip big-fat-example) big-fat-example)
-
-(check-equal? (named-mc-thing? big-fat-example)
-              true)
-(check-equal?
- (named-mc-thing?
-  `(named "ohth" (compound (named "floozy" (i8 23))
-                           (named "bo" (i16 2231))
-                           (named "oo" (string "zagga-wagga"))
-                           (named "ff" (f32 3.125))
-                           (named "gg" (f64 2.7872901))
-                           (named "oth" (bytearray #"ontho nteh"))
-                           (named "com" (compound (named "bongo" (string "bill"))
-                                                  (named "boingo" (i83 23))))
-                           (named "blug" (list i8
-                                               (i8 13)
-                                               (i8 14)
-                                               (i8 187))))))
- false)
 
 

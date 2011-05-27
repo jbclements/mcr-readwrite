@@ -15,21 +15,110 @@
 (define MAX-CHUNK-IDX (- REGIONDHORIZ 1))
 
 (define (posn->chunk a)
-  (floor (/ a CHUNKDHORIZ)))
+  (inexact->exact (floor (/ a CHUNKDHORIZ))))
 
 (define (chunk->region a)
   (floor (/ a REGIONDHORIZ)))
 
-(define (chunk->relchunk a)
+(define (chunk->rel-chunk a)
   (modulo a REGIONDHORIZ))
 
 (define nat? exact-nonnegative-integer?)
+(define maker-fun? (-> nat? nat? nat? nat?))
+                  
+
+(provide/contract [posn->chunk (-> inexact? integer?)]
+                  [chunk->region (-> integer? integer?)]
+                  [chunk->rel-chunk (-> integer? integer?)]
+                  [chunk-read/dir (-> path-string?
+                                      integer?
+                                      integer?
+                                      blank-compound-mc-thing?)]
+                  [chunk-overwrite/dir (-> path-string?
+                                           integer?
+                                           integer?
+                                           blank-compound-mc-thing? 
+                                           void?)]
+                  
+                  
+                  [get-field (-> mc-thing? 
+                                 string?
+                                 mc-thing?)]
+                  [set-field (-> mc-thing? 
+                                 string?
+                                 (-> mc-thing? mc-thing?)
+                                 mc-thing?)]
+                  [set-field/chain (-> mc-thing? 
+                                       (listof string?)
+                                       (-> mc-thing? mc-thing?)
+                                       mc-thing?)]
+                  [raw-nums-read (-> input-port? 
+                                     bytes?)]
+                  [raw-nums->blocks (-> port?
+                                        integer?
+                                        integer?
+                                        mc-thing?)]
+                  [regular-byte-ref (-> bytes? nat? nat? nat? nat?)]
+                  [regular-byte-set! (-> bytes? nat? nat? nat? nat? void?)]
+                  [half-byte-ref (-> bytes? nat? nat? nat? nat?)]
+                  [half-byte-set! (-> bytes? nat? nat? nat? nat? void?)]
+                  [get-field/chain (-> mc-thing?
+                                       (listof string?)
+                                       mc-thing?)]
+                  [wrap-chunk (-> bytes? bytes? bytes? bytes? 
+                                  integer? integer? nat?
+                                  mc-thing?)]
+                  [generate-chunk
+                   (-> maker-fun?
+                       maker-fun?
+                       maker-fun?
+                       integer?
+                       integer?
+                       nat?
+                       mc-thing?)]
+                  
+                  [blocks-display (-> mc-thing? port? void?)]
+                  [block-bytes-display (-> bytes? port? void?)]
+                  )
+
+
+;; given the save directory and the desired chunk indices, return
+;; the chunk.  
+(define (chunk-read/dir directory-name chunk-x chunk-z)
+  (define region-file (check-and-find-region-file directory-name chunk-x chunk-z))
+  (define rel-cx (chunk->rel-chunk chunk-x))
+  (define rel-cz (chunk->rel-chunk chunk-z))
+  (chunk-read region-file rel-cx rel-cz))
+
+;; given the save directory and the desired chunk indices and the new chunk, overwrite
+;; the existing chunk
+(define (chunk-overwrite/dir directory-name chunk-x chunk-z new-chunk)
+  (define region-file (check-and-find-region-file directory-name chunk-x chunk-z))
+  (define rel-cx (chunk->rel-chunk chunk-x))
+  (define rel-cz (chunk->rel-chunk chunk-z))
+  (define xpos (get-field/chain new-chunk '("" "Level" "xPos")))
+  (define zpos (get-field/chain new-chunk '("" "Level" "zPos")))
+  (unless (and (equal? xpos `(i32 ,chunk-x))
+               (equal? zpos `(i32 ,chunk-z)))
+    (error 'chunk-overwrite/dir
+           "trying to overwrite region ~s,~s with a chunk labeled ~s, ~s"
+           chunk-x chunk-z xpos zpos))
+  (chunk-overwrite region-file rel-cx rel-cz new-chunk))
+
+(define (check-and-find-region-file directory-name chunk-x chunk-z)
+  (define region-directory (build-path directory-name "region"))
+  (unless (directory-exists? region-directory)
+    (raise-type-error 'read-chunk/dir "name of directory containing region subdirectory"))
+  (define rx (chunk->region chunk-x))
+  (define rz (chunk->region chunk-z))
+  (define region-file (build-path region-directory (format "r.~s.~s.mcr" rx rz)))
+  (unless (file-exists? region-file)
+    (error 'read-chunk/dir "desired region file ~s doesn't exist in the region directory"
+           region-file))
+  region-file)
 
 
 ;; dig through a sequence of named fields 
-(provide/contract [get-field (-> mc-thing? 
-                                 string?
-                                 mc-thing?)])
 (define (get-field compound name)
   (match compound
     [`(compound . ,fields)
@@ -39,7 +128,7 @@
                      [`(named ,this-name ,val)
                       (cond [(string=? name this-name) val]
                             [else (loop (cdr fields))])]
-                     [other (error 'get-foo "not a named field: ~s" other)])]))]
+                     [other (error 'get-field "not a named field: ~e" other)])]))]
     [other (error 'get-foo "not a compound object")]))
 
 ;; functionally update a named field within a compound object
@@ -60,15 +149,18 @@
                       [other (error 'get-foo "not a named field: ~s" other)])])))]
     [other (error 'get-foo "not a compound object")]))
 
+(define (set-field/chain compound name-list thunk)
+  (cond [(empty? (rest name-list))
+         (set-field compound (first name-list) thunk)]
+        [else (set-field compound (first name-list)
+                         (lambda (elt) (set-field/chain elt (rest name-list) thunk)))]))
+
 
 ;; convert x, y, and z into an index
 (define (xyz->idx x y z)
   (+ y (* z CHUNKDY) (* x CHUNKDY CHUNKDZ)))
 
-(provide/contract [regular-byte-ref (-> bytes? nat? nat? nat? nat?)]
-                  [regular-byte-set! (-> bytes? nat? nat? nat? nat? void?)]
-                  [half-byte-ref (-> bytes? nat? nat? nat? nat?)]
-                  [half-byte-set! (-> bytes? nat? nat? nat? nat? void?)])
+
 
 ;; return the byte corresponding to x, y, and z in the bytes
 (define (regular-byte-ref bytes x y z)
@@ -105,15 +197,7 @@
   (bytes-set! bytes idx/b new-byte))
 
 
-(define maker-fun? (-> nat? nat? nat? nat?))
-(provide/contract [generate-chunk
-                   (-> maker-fun?
-                       maker-fun?
-                       maker-fun?
-                       integer?
-                       integer?
-                       nat?
-                       mc-thing?)])
+
 
 ;; given functions generating blocks, skylight, and extra data, and chunk-x
 ;; and chunk-y coordinates, generate a new compound object representing a block.
@@ -160,10 +244,6 @@
     (regular-byte-set! block-bytes x y z (maker x y z)))
   block-bytes)
 
-
-(provide/contract [wrap-chunk (-> bytes? bytes? bytes? bytes? 
-                                  integer? integer? nat?
-                                  mc-thing?)])
 
 ;; given byte-arrays and other pieces, assemble a chunk:
 ;; NB: x and z must be *absolute*, not relative to the region.
@@ -216,19 +296,9 @@
 
 
 
-(check-equal? (set-field `(compound (named "a" (i8 14)) 
-                                    (named "b" (string "goo"))
-                                    (named "c" (i64 2134)))
-                         "b"
-                         (lambda (dc) '(string "babba")))
-              `(compound (named "a" (i8 14)) 
-                         (named "b" (string "babba"))
-                         (named "c" (i64 2134))))
 
 
-(provide/contract [get-field/chain (-> mc-thing?
-                                       (listof string?)
-                                       mc-thing?)])
+
 
 ;; find a named field given a list of field names to navigate down through
 (define (get-field/chain val lon)
@@ -242,7 +312,6 @@
 
 ;; given a chunk and a port, display the blocks in the 
 ;; chunk to the port (as lines of numbers)
-(provide/contract [blocks-display (-> mc-thing? port? void?)])
 (define (blocks-display chunk port)
   (define cblocks (second (blocks chunk)))
   (block-bytes-display cblocks port))
@@ -250,7 +319,6 @@
 
 ;; given the bytes representing a block array and an output port,
 ;; write lines of numbers to the port
-(provide/contract [block-bytes-display (-> bytes? port? void?)])
 (define (block-bytes-display block-bytes out-port)
   (for* ([y (in-range CHUNKDY)]
          [x (in-range CHUNKDX)])
@@ -259,10 +327,6 @@
     (fprintf out-port "\n")))
 
 
-(provide/contract [raw-nums->blocks (-> port?
-                                        integer?
-                                        integer?
-                                        mc-thing?)])
 
 (define (raw-nums->blocks port absolute-chunk-x absolute-chunk-y)
   (define block-bytes (raw-nums-read port))
@@ -302,41 +366,6 @@
 (define (discard-empties l)
   (filter (lambda (s) (not (string=? "" s))) l))
 
-(check-exn (lambda (exn)
-             (regexp-match #px"expecting inputs for x=0, y=0" (exn-message exn)))
-           (lambda ()
-             (raw-nums-read (open-input-bytes #""))))
-(check-exn (lambda (exn)
-             (regexp-match #px"line contained 1 element" (exn-message exn)))
-           (lambda ()
-             (raw-nums-read (open-input-bytes #"aobesc"))))
-(check-exn (lambda (exn)
-             (regexp-match #px"illegal element" (exn-message exn)))
-           (lambda ()
-             (raw-nums-read (open-input-bytes #"a b c d e f g h a b c d e f g h"))))
-(let ([test-bytes (apply bytes-append
-                         (for/list ([i (in-range (* CHUNKDX CHUNKDY))])
-                           #"1 2 3 4 5 6 7 8 1 2 3 4 5 6 7 8 \n"))])
-  (define parsed (raw-nums-read (open-input-bytes test-bytes)))
-  (check-equal? (regular-byte-ref parsed 14 24 3)
-                4))
-
-;; round-trip
-(let ([t (make-temporary-file)]
-      [b (make-bytes (* CHUNKDX CHUNKDY CHUNKDZ) 0)])
-  ;; fill with random data:
-  (for ([i (in-range (bytes-length b))])
-    (bytes-set! b i (random 256)))
-  (call-with-output-file t
-    (lambda (port)
-      (block-bytes-display b port))
-    #:exists 'truncate)
-  (call-with-input-file t
-    (lambda (port)
-      (check-equal? (raw-nums-read port)
-                    b)))
-  (delete-file t))
-
 (provide rip-out-bytearrays)
 
 (define (rip-out-bytearrays obj)
@@ -353,26 +382,3 @@
   (match named
     [`(named ,name ,val)
      `(named ,name ,(rip-out-bytearrays val))]))
-
-;; REGRESSION TEST
-
-(define ((make-hashy-xyz-fun seed modulus) x y z)
-  (modulo (+ (* seed x)
-             (* (* seed 3) y)
-             (* (* seed 11) z))
-          modulus))
-
-(require "regression-test.rkt")
-
-(check-equal?
- ;; I'm using equal? to hide the output. When it fails,
- ;; rackunit otherwise tries to print everything out,
- ;; and DrRacket hangs...
- (equal? (generate-chunk (make-hashy-xyz-fun 13 256)
-                         (make-hashy-xyz-fun 17 16)
-                         (make-hashy-xyz-fun 19 16)
-                         -45
-                         13
-                         1238298)
-         test-out)
- true)
