@@ -29,8 +29,7 @@
                   chunk-x
                   chunk-z))
 
-(define (tower-blocks chunk-x chunk-z tick)
-  (define (block-maker x y z)
+(define (tower-block-maker x y z)
     (cond [(= y 127) 0]
           [(and (= x 7) (= z 7)) (cond [(= (modulo y 4) 1) 5]
                                        [else 0])]
@@ -44,16 +43,6 @@
           #;[(or (= x 0) (= x 15)) 1]
           #;[(or (= z 0) (= z 15)) 1]
           [else 0]))
-  (define (skylight-maker x y z)
-    (cond [(<= 127 y) 15]
-          [else 0]))
-  (define (extra-data-maker x y z) 0)
-  (generate-chunk block-maker
-                  skylight-maker
-                  extra-data-maker
-                  chunk-x
-                  chunk-z
-                  tick))
 
 (define (zero x y z) 0)
 
@@ -108,7 +97,7 @@
 (call-with-output-file "/tmp/data"
   #:exists 'truncate
   (lambda (port)
-    (block-bytes-display (maker->block-bytes (level-dirt 64)) port)))
+    (block-bytes-display (maker->block-bytes tower-block-maker) port)))
 
 
 ;; simple round-trip:
