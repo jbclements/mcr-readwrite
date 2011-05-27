@@ -4,14 +4,24 @@
 (require "minecraft-mcr-reader.rkt"
          rackunit)
 
-(define CHUNKDX 16)
+(define CHUNKDHORIZ 16)
+(define CHUNKDX CHUNKDHORIZ)
 (define CHUNKDY 128)
-(define CHUNKDZ 16)
+(define CHUNKDZ CHUNKDHORIZ)
 
 (provide CHUNKDX CHUNKDY CHUNKDZ)
 
-(define MAX-CHUNK-IDX 31)
+(define REGIONDHORIZ 32)
+(define MAX-CHUNK-IDX (- REGIONDHORIZ 1))
 
+(define (posn->chunk a)
+  (floor (/ a CHUNKDHORIZ)))
+
+(define (chunk->region a)
+  (floor (/ a REGIONDHORIZ)))
+
+(define (chunk->relchunk a)
+  (modulo a REGIONDHORIZ))
 
 (define nat? exact-nonnegative-integer?)
 

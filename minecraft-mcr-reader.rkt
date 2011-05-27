@@ -52,27 +52,29 @@
 
 ;; FILE I/O
 
-(provide/contract [chunk-read (-> path-string? nat? nat? blank-compound-mc-thing?)])
+(provide/contract [chunk-read (-> path-string? nat? nat? blank-compound-mc-thing?)]
+                  [chunk-timestamp/file (-> path-string? nat? nat? nat?)]
+                  [overwrite-chunk (-> path-string? 
+                                       nat?
+                                       nat?
+                                       blank-compound-mc-thing?
+                                       void?)]
+                  [parse-player-file (-> path-string? named-mc-thing?)])
+
 
 ;; path-string? nat? nat? -> named-thing
-;; given a filename and two integers, read the
+;; given a filename and two *relative* integers, read the
 ;; corresponding chunk from the file
 (define (chunk-read file chunk-x chunk-z)
   (define-values (pipe-in pipe-out) (make-pipe))
   (chunk-read/bytes file chunk-x chunk-z pipe-out)
   `(compound ,(parse-tag pipe-in)))
 
-(provide/contract [chunk-timestamp/file (-> path-string? nat? nat? nat?)])
 
 ;; return the timestamp of a chunk
 (define (chunk-timestamp/file file chunk-x chunk-y)
   (chunk-timestamp (file-header file) chunk-x chunk-y))
 
-(provide/contract [overwrite-chunk (-> path-string? 
-                                       nat?
-                                       nat?
-                                       blank-compound-mc-thing?
-                                       void?)])
 
 ;; given a file and the *relative* x and z of a chunk and a new chunk, 
 ;; replace the old one with the new one (if it fits in the space
@@ -184,7 +186,6 @@
       (inflate port out-port))))
 
 
-(provide/contract [parse-player-file (-> path-string? named-mc-thing?)])
 
 (define (parse-player-file filename)
   (define path (cond [(string? filename) (string->path filename)]

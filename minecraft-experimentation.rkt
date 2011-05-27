@@ -87,10 +87,23 @@
 
 
 
-(call-with-output-file "/tmp/data"
+#;(call-with-output-file "/tmp/data"
   #:exists 'truncate
   (lambda (port)
     (block-bytes-display (maker->block-bytes tower-block-maker) port)))
+
+
+(define save-dir "/Users/clements/Library/Application Support/minecraft/saves/z5/")
+
+(define player-data `(compound ,(parse-player-file (build-path save-dir "level.dat"))))
+
+(define player-pos (get-field/chain player-data '("" "Data" "Player" "Pos")))
+(define abs-x (posn->chunk (third player-pos)))
+(define abs-z (floor (/ (second (fifth player-pos)) 16)))
+
+(define region (floor))
+
+(define northern-chunk ())
 
 
 
