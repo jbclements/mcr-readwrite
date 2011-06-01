@@ -71,7 +71,7 @@
                       (scrub-and-check file x z))
                     (define new-chunk (raw-nums->blocks (current-input-port)
                                                         cx cz))
-                    (overwrite-chunk file rel-cx rel-cz new-chunk)]
+                    (chunk-overwrite file rel-cx rel-cz new-chunk)]
  #;[("-a" "--about") file
                    "extract the meta-info from an .mcr file"
                    (mcr-check file)]
