@@ -79,6 +79,11 @@
   (for/list ([y (in-range ymin ymax)])
     (regular-byte-ref cblocks x y z)))
 
+(define (layer blocks y)
+  (for/list ([x (in-range 16)])
+    (for/list ([z (in-range 16)])
+      (regular-byte-ref blocks x y z))))
+
 
 
 #;(call-with-output-file "/tmp/data"
@@ -87,7 +92,7 @@
     (block-bytes-display (maker->block-bytes tower-block-maker) port)))
 
 
-(define save-dir "/Users/clements/Library/Application Support/minecraft/saves/z5/")
+(define save-dir "/Users/clements/Library/Application Support/minecraft/saves/z7/")
 
 (define player-data `(compound ,(parse-player-file (build-path save-dir "level.dat"))))
 
@@ -96,51 +101,123 @@
 (define abs-z (posn->chunk (second (fifth player-pos))))
 
 
-(define (hollow-out cx cz)
-  (printf "hollowing out ~s, ~s\n" cx  cz)
-  (define northern-chunk (chunk-read/dir save-dir cx cz))
+(printf "x: ~s y: ~s z: ~s\n"
+        (second (third player-pos))
+        (second (fourth player-pos))
+        (second (fifth player-pos)))
+
+(printf "abs-x: ~s abs-z: ~s\n"
+        abs-x abs-z)
+
+(define killed-block-types (list 1 3))
+;; either air, or things that will fall if unsupported:
+(define preserve-next-to-types (list 0 8 9 10 11 12 13))
+(define (adjoins-preserved? x y z pre-blocks)
+  (for*/or ([dx (in-range -1 2)]
+            [dy (in-range -1 2)]
+            [dz (in-range -1 2)]
+            #:when (and (<= 0 (+ dx x) (- CHUNKDX 1))
+                        (<= 0 (+ dy y) (- CHUNKDY 1))
+                        (<= 0 (+ dz z) (- CHUNKDZ 1))
+                        (not (= 1 dx dy dz))))
+    (member (regular-byte-ref pre-blocks (+ x dx) (+ y dy) (+ z dz))
+            preserve-next-to-types)))
+
+
+;; blocks
+(define (blocks-hollow-out pre-blocks)
   
-  (define killed-block-types (list 1 3))
-  ;; either air, or things that will fall if unsupported:
-  (define preserve-next-to-types (list 0 8 9 10 11 12 13))
-  (define pre-blocks (second (get-field/chain northern-chunk '("" "Level" "Blocks"))))
   (define post-blocks (make-bytes (* 16 16 128) 0))
-  
-  
-  (define (adjoins-preserved? x y z pre-blocks)
-    (for*/or ([dx (in-range -1 2)]
-              [dy (in-range -1 2)]
-              [dz (in-range -1 2)]
-              #:when (and (<= 0 (+ dx x) 15)
-                          (<= 0 (+ dy y) 15)
-                          (<= 0 (+ dz z) 15)
-                          (not (= 1 dx dy dz))))
-      (member (regular-byte-ref pre-blocks (+ x dx) (+ y dy) (+ z dz))
-              preserve-next-to-types)))
   
   (for* ([x (in-range 16)]
          [y (in-range 128)]
          [z (in-range 16)])
     (define existing (regular-byte-ref pre-blocks x y z))
     (cond [(or (not (member existing killed-block-types))
+               (= 0 (modulo y 30))
                (adjoins-preserved? x y z pre-blocks))
            (regular-byte-set! post-blocks x y z 
                               (regular-byte-ref pre-blocks x y z))]
           [else ;; leave it as air...
-           (void)]))
+           (cond [(and (= x z 8))
+                  (regular-byte-set! post-blocks x y z 50)]
+                 [else (void)])]))
+  
+  post-blocks)
+
+(define (hollow-out cx cz)
+  (printf "hollowing out ~s, ~s\n" cx  cz)
+  (with-handlers ([exn:fail? 
+                   (lambda (exn) 
+                     (fprintf (current-error-port)
+                              "~e\n" (exn-message exn)))])
+  (define northern-chunk (chunk-read/dir save-dir cx cz))
+  
+  (define pre-blocks (second (get-field/chain northern-chunk '("" "Level" "Blocks"))))
+  (define post-blocks (blocks-hollow-out pre-blocks))
   
   (define new-chunk (set-field/chain northern-chunk '("" "Level" "Blocks")
                                      (lambda (dc) `(bytearray ,post-blocks))))
   
-  (rip-out-bytearrays new-chunk)
-  
-  (chunk-overwrite/dir save-dir cx cz new-chunk))
+  (chunk-overwrite/dir save-dir cx cz new-chunk)))
 
-(for* ([x (in-range (- abs-x 2) (+ abs-x 3))]
-       [z (in-range (- abs-z 2) (+ abs-z 3))])
+;; really should make this a better test case....
+#|(define northern-chunk (chunk-read/dir save-dir (+ 1 abs-x) abs-z))
+(define pre-blocks (second (get-field/chain northern-chunk '("" "Level" "Blocks"))))
+(pretty-print (layer pre-blocks 69))
+(check-equal? (regular-byte-ref pre-blocks 4 69 7) 3)
+(check-equal? (regular-byte-ref pre-blocks 4 69 6) 0)
+(check-equal? (not (not (adjoins-preserved? 4 69 7 pre-blocks))) true)
+(define post-blocks (blocks-hollow-out pre-blocks))
+(pretty-print (layer post-blocks 69))
+(check-equal? (regular-byte-ref post-blocks 4 69 7) 3)
+(check-equal? (regular-byte-ref post-blocks 4 69 6) 0)
+|#
+
+(for* ([x (in-range (- abs-x 4) (+ abs-x 5))]
+       [z (in-range (- abs-z 4) (+ abs-z 5))])
   (hollow-out x z))
 
+#|
+(define test-blocks (make-bytes (* 16 16 128) 0))
+(regular-byte-set! test-blocks 5 10 5 3)
+(regular-byte-set! test-blocks 5 10 6 3)
+(regular-byte-set! test-blocks 5 10 7 3)
+(regular-byte-set! test-blocks 6 10 5 3)
+(regular-byte-set! test-blocks 6 10 6 3)
+(regular-byte-set! test-blocks 6 10 7 3)
+(regular-byte-set! test-blocks 7 10 5 3)
+(regular-byte-set! test-blocks 7 10 6 3)
+(regular-byte-set! test-blocks 7 10 7 3)
 
+(regular-byte-set! test-blocks 5 11 5 3)
+(regular-byte-set! test-blocks 5 11 6 3)
+(regular-byte-set! test-blocks 5 11 7 3)
+(regular-byte-set! test-blocks 6 11 5 3)
+(regular-byte-set! test-blocks 6 11 6 3)
+(regular-byte-set! test-blocks 7 11 5 3)
+
+(regular-byte-set! test-blocks 5 12 5 3)
+(regular-byte-set! test-blocks 5 12 6 3)
+(regular-byte-set! test-blocks 6 12 5 3)
+(regular-byte-set! test-blocks 6 12 6 3)
+(define test-2-blocks (blocks-hollow-out test-blocks))
+(equal? test-blocks test-2-blocks)
+|#
+(check-equal?
+ (length 
+  (let ([x 4]
+        [y 3]
+        [z 2])
+    (for*/list ([dx (in-range -1 2)]
+                [dy (in-range -1 2)]
+                [dz (in-range -1 2)]
+                #:when (and (<= 0 (+ dx x) 15)
+                            (<= 0 (+ dy y) 15)
+                            (<= 0 (+ dz z) 15)
+                            (not (= 0 dx dy dz))))
+      (list dx dy dz))))
+ 26)
 
 
 ;; simple round-trip:
