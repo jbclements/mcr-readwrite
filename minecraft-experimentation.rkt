@@ -79,6 +79,11 @@
   (for/list ([y (in-range ymin ymax)])
     (regular-byte-ref cblocks x y z)))
 
+(define (layer blocks y)
+  (for/list ([x (in-range 16)])
+    (for/list ([z (in-range 16)])
+      (regular-byte-ref blocks x y z))))
+
 
 
 #;(call-with-output-file "/tmp/data"
@@ -87,56 +92,80 @@
     (block-bytes-display (maker->block-bytes tower-block-maker) port)))
 
 
-(define save-dir "/Users/clements/Library/Application Support/minecraft/saves/z6/")
+(define save-dir "/Users/clements/Library/Application Support/minecraft/saves/z7/")
 
 (define player-data `(compound ,(parse-player-file (build-path save-dir "level.dat"))))
 
 (define player-pos (get-field/chain player-data '("" "Data" "Player" "Pos")))
-(define abs-x (posn->chunk (second (third player-pos))))
-(define abs-z (posn->chunk (second (fifth player-pos))))
+(define abs-xpos (second (third player-pos)))
+(define abs-zpos (second (fifth player-pos)))
+(define abs-x (posn->chunk abs-xpos))
+(define abs-z (posn->chunk abs-zpos))
 
 
-(define (hollow-out cx cz)
-  (printf "hollowing out ~s, ~s\n" cx  cz)
-  (define northern-chunk (chunk-read/dir save-dir cx cz))
+(printf "x: ~s y: ~s z: ~s\n"
+        (second (third player-pos))
+        (second (fourth player-pos))
+        (second (fifth player-pos)))
+
+(printf "abs-x: ~s abs-z: ~s\n"
+        abs-x abs-z)
+
+(define killed-block-types (list 1 3))
+;; either air, or things that will fall if unsupported:
+(define preserve-next-to-types (list 0 8 9 10 11 12 13))
+(define (adjoins-preserved? x y z pre-blocks)
+  (for*/or ([dx (in-range -1 2)]
+            [dy (in-range -1 2)]
+            [dz (in-range -1 2)]
+            #:when (and (<= 0 (+ dx x) (- CHUNKDX 1))
+                        (<= 0 (+ dy y) (- CHUNKDY 1))
+                        (<= 0 (+ dz z) (- CHUNKDZ 1))
+                        (not (= 1 dx dy dz))))
+    (member (regular-byte-ref pre-blocks (+ x dx) (+ y dy) (+ z dz))
+            preserve-next-to-types)))
+
+
+;; blocks
+(define (blocks-hollow-out pre-blocks)
   
-  (define killed-block-types (list 1 3))
-  ;; either air, or things that will fall if unsupported:
-  (define preserve-next-to-types (list 0 8 9 10 11 12 13))
-  (define pre-blocks (second (get-field/chain northern-chunk '("" "Level" "Blocks"))))
   (define post-blocks (make-bytes (* 16 16 128) 0))
-  
-  
-  (define (adjoins-preserved? x y z pre-blocks)
-    (for*/or ([dx (in-range -1 2)]
-              [dy (in-range -1 2)]
-              [dz (in-range -1 2)]
-              #:when (and (<= 0 (+ dx x) 15)
-                          (<= 0 (+ dy y) 128)
-                          (<= 0 (+ dz z) 15)
-                          (not (= 1 dx dy dz))))
-      (member (regular-byte-ref pre-blocks (+ x dx) (+ y dy) (+ z dz))
-              preserve-next-to-types)))
   
   (for* ([x (in-range 16)]
          [y (in-range 128)]
          [z (in-range 16)])
     (define existing (regular-byte-ref pre-blocks x y z))
     (cond [(or (not (member existing killed-block-types))
+               (= 0 (modulo y 30))
                (adjoins-preserved? x y z pre-blocks))
            (regular-byte-set! post-blocks x y z 
                               (regular-byte-ref pre-blocks x y z))]
           [else ;; leave it as air...
-           (cond [(= 0 (modulo y 5)) (regular-byte-set! post-blocks x y z 1)]
+           (cond [(and (= x z 8))
+                  (regular-byte-set! post-blocks x y z 50)]
                  [else (void)])]))
   
-  (define new-chunk (set-field/chain northern-chunk '("" "Level" "Blocks")
-                                     (lambda (dc) `(bytearray ,post-blocks))))
-  
-  (with-handlers ([exn:fail?
-                   (lambda (exn) (fprintf (current-error-port)
-                                          "~s\n" (exn-message exn)))])
-    (chunk-overwrite/dir save-dir cx cz new-chunk)))
+  post-blocks)
+
+(define (hollow-out cx cz)
+  (printf "hollowing out ~s, ~s\n" cx  cz)
+  (with-handlers ([exn:fail? 
+                   (lambda (exn) 
+                     (fprintf (current-error-port)
+                              "~e\n" (exn-message exn)))])
+    (define northern-chunk (chunk-read/dir save-dir cx cz))
+    
+    (define pre-blocks (second (get-field/chain northern-chunk '("" "Level" "Blocks"))))
+    (define post-blocks (blocks-hollow-out pre-blocks))
+    
+    (define new-chunk (set-field/chain northern-chunk '("" "Level" "Blocks")
+                                       (lambda (dc) `(bytearray ,post-blocks))))
+    
+    
+    (with-handlers ([exn:fail?
+                     (lambda (exn) (fprintf (current-error-port)
+                                            "~s\n" (exn-message exn)))])
+      (chunk-overwrite/dir save-dir cx cz new-chunk))))
 
 (define (highway x z)
   (printf "highway for ~s, ~s\n" x  z)
@@ -176,7 +205,7 @@
     
     (chunk-overwrite/dir save-dir x z new-chunk)))
 
-(for* ([x (in-range (- abs-x 3) (+ abs-x 4))]
+#;(for* ([x (in-range (- abs-x 3) (+ abs-x 4))]
        [z (in-range (- abs-z 3) (+ abs-z 4))])
   (hollow-out x z))
 
@@ -184,6 +213,50 @@
   (ew-highway abs-x z))
 
 
+(define (big-valley x z center-xpos center-ypos center-zpos radius)
+  (printf "on chunk ~s,~s\n" x z)
+  (define chunk-xpos (* x CHUNKDX))
+  (define chunk-zpos (* z CHUNKDZ))
+  (define rsq (* radius radius))
+  (with-handlers ([exn:fail?
+                   (lambda (exn) (fprintf (current-error-port)
+                                          "~s\n" (exn-message exn)))])
+    (define this-chunk (chunk-read/dir save-dir x z))
+    
+    (define pre-blocks (second (get-field/chain this-chunk '("" "Level" "Blocks"))))
+    (define post-blocks (make-bytes (* 16 16 128) 0))
+    
+    (for* ([zp (in-range CHUNKDZ)]
+           [xp (in-range CHUNKDX)])
+      (define xpos (+ chunk-xpos xp))
+      (define zpos (+ chunk-zpos zp))
+      (define dx (- xpos center-xpos))
+      (define dz (- zpos center-zpos))
+      (define dysq (- rsq (* dx dx) (* dz dz)))
+      (define adjust-y
+        (cond [(< dysq 0) 0]
+              [else 
+               (define ysphere (- center-ypos (sqrt dysq)))
+               (define groundlevel (min 64 ysphere))
+               (inexact->exact (round (- 64 groundlevel)))]))
+      (for ([y (in-range CHUNKDY)])
+        (define source-y (+ y adjust-y))
+        (when (< 0 source-y CHUNKDY)
+          (regular-byte-set! post-blocks xp y zp 
+                             (regular-byte-ref pre-blocks xp source-y zp)))))
+    
+    (define new-chunk (set-field/chain this-chunk '("" "Level" "Blocks")
+                                       (lambda (dc) `(bytearray ,post-blocks))))
+    
+    (chunk-overwrite/dir save-dir x z new-chunk)))
+
+
+(/ (+ (* 160 160) (* 30 30)) 60)
+
+
+(for* ([x (in-range (- abs-x 20) (+ abs-x 1))]
+       [z (in-range (- abs-z 10) (+ abs-z 11))])
+  (big-valley x z (- abs-xpos 160) 475 abs-zpos 441))
 
 
 ;; simple round-trip:
