@@ -87,7 +87,7 @@
     (block-bytes-display (maker->block-bytes tower-block-maker) port)))
 
 
-(define save-dir "/Users/clements/Library/Application Support/minecraft/saves/z5/")
+(define save-dir "/Users/clements/Library/Application Support/minecraft/saves/z6/")
 
 (define player-data `(compound ,(parse-player-file (build-path save-dir "level.dat"))))
 
@@ -112,7 +112,7 @@
               [dy (in-range -1 2)]
               [dz (in-range -1 2)]
               #:when (and (<= 0 (+ dx x) 15)
-                          (<= 0 (+ dy y) 15)
+                          (<= 0 (+ dy y) 128)
                           (<= 0 (+ dz z) 15)
                           (not (= 1 dx dy dz))))
       (member (regular-byte-ref pre-blocks (+ x dx) (+ y dy) (+ z dz))
@@ -127,18 +127,61 @@
            (regular-byte-set! post-blocks x y z 
                               (regular-byte-ref pre-blocks x y z))]
           [else ;; leave it as air...
-           (void)]))
+           (cond [(= 0 (modulo y 5)) (regular-byte-set! post-blocks x y z 1)]
+                 [else (void)])]))
   
   (define new-chunk (set-field/chain northern-chunk '("" "Level" "Blocks")
                                      (lambda (dc) `(bytearray ,post-blocks))))
   
-  (rip-out-bytearrays new-chunk)
-  
-  (chunk-overwrite/dir save-dir cx cz new-chunk))
+  (with-handlers ([exn:fail?
+                   (lambda (exn) (fprintf (current-error-port)
+                                          "~s\n" (exn-message exn)))])
+    (chunk-overwrite/dir save-dir cx cz new-chunk)))
 
-(for* ([x (in-range (- abs-x 2) (+ abs-x 3))]
-       [z (in-range (- abs-z 2) (+ abs-z 3))])
+(define (highway x z)
+  (printf "highway for ~s, ~s\n" x  z)
+  (with-handlers ([exn:fail?
+                   (lambda (exn) (fprintf (current-error-port)
+                                          "~s\n" (exn-message exn)))])
+    (define this-chunk (chunk-read/dir save-dir x z))
+    
+    (define pre-blocks (second (get-field/chain this-chunk '("" "Level" "Blocks"))))
+    (define post-blocks (make-bytes (* 16 16 128) 0))
+    
+    (for* ([x (in-range 16)]
+           [z (in-range 7 10)])
+      (regular-byte-set! pre-blocks x 82 z 45))
+    
+    (define new-chunk (set-field/chain this-chunk '("" "Level" "Blocks")
+                                       (lambda (dc) `(bytearray ,pre-blocks))))
+    
+    (chunk-overwrite/dir save-dir x z new-chunk)))
+
+(define (ew-highway x z)
+  (printf "east-west highway for ~s, ~s\n" x  z)
+  (with-handlers ([exn:fail?
+                   (lambda (exn) (fprintf (current-error-port)
+                                          "~s\n" (exn-message exn)))])
+    (define this-chunk (chunk-read/dir save-dir x z))
+    
+    (define pre-blocks (second (get-field/chain this-chunk '("" "Level" "Blocks"))))
+    (define post-blocks (make-bytes (* 16 16 128) 0))
+    
+    (for* ([z (in-range 16)]
+           [x (in-range 7 10)])
+      (regular-byte-set! pre-blocks x 82 z 45))
+    
+    (define new-chunk (set-field/chain this-chunk '("" "Level" "Blocks")
+                                       (lambda (dc) `(bytearray ,pre-blocks))))
+    
+    (chunk-overwrite/dir save-dir x z new-chunk)))
+
+(for* ([x (in-range (- abs-x 3) (+ abs-x 4))]
+       [z (in-range (- abs-z 3) (+ abs-z 4))])
   (hollow-out x z))
+
+#;(for ([z (in-range -30 30)])
+  (ew-highway abs-x z))
 
 
 
