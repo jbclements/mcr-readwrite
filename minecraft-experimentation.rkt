@@ -92,7 +92,7 @@
     (block-bytes-display (maker->block-bytes tower-block-maker) port)))
 
 
-(define save-dir "/Users/clements/Library/Application Support/minecraft/saves/z7/")
+(define save-dir "/Users/clements/Library/Application Support/minecraft/saves/z8/")
 
 (define player-data `(compound ,(parse-player-file (build-path save-dir "level.dat"))))
 
@@ -250,14 +250,89 @@
     
     (chunk-overwrite/dir save-dir x z new-chunk)))
 
+(define (big-hill x z center-xpos center-ypos center-zpos radius)
+  (printf "on chunk ~s,~s\n" x z)
+  (define chunk-xpos (* x CHUNKDX))
+  (define chunk-zpos (* z CHUNKDZ))
+  (define rsq (* radius radius))
+  (with-handlers ([exn:fail?
+                   (lambda (exn) (fprintf (current-error-port)
+                                          "~s\n" (exn-message exn)))])
+    (define this-chunk (chunk-read/dir save-dir x z))
+    
+    (define pre-blocks (second (get-field/chain this-chunk '("" "Level" "Blocks"))))
+    (define post-blocks (make-bytes (* 16 16 128) 0))
+    
+    (for* ([zp (in-range CHUNKDZ)]
+           [xp (in-range CHUNKDX)])
+      (define xpos (+ chunk-xpos xp))
+      (define zpos (+ chunk-zpos zp))
+      (define dx (- xpos center-xpos))
+      (define dz (- zpos center-zpos))
+      (define dysq (- rsq (* dx dx) (* dz dz)))
+      (define adjust-y
+        (cond [(< dysq 0) 0]
+              [else 
+               (define ysphere (+ center-ypos (sqrt dysq)))
+               (inexact->exact (round (max 0 (- ysphere 64))))]))
+      (for ([y (in-range CHUNKDY)])
+        (define source-y (- y adjust-y))
+        (when (< 0 source-y CHUNKDY)
+          (regular-byte-set! post-blocks xp y zp 
+                             (regular-byte-ref pre-blocks xp source-y zp)))))
+    
+    (define new-chunk (set-field/chain this-chunk '("" "Level" "Blocks")
+                                       (lambda (dc) `(bytearray ,post-blocks))))
+    
+    (chunk-overwrite/dir save-dir x z new-chunk)))
+
 
 (/ (+ (* 160 160) (* 30 30)) 60)
 
+#;(big-hill (- abs-x 5) abs-z (- abs-xpos 160) (+ 64 (- 64 475)) abs-zpos 441)
+
+#;(for* ([x (in-range (- abs-x 20) (+ abs-x 1))]
+       [z (in-range (- abs-z 10) (+ abs-z 11))])
+  (big-hill x z (- abs-xpos 160) -347 abs-zpos 441))
+
+(define twopi (* 2 pi))
+
+(define (sine-waves x z)
+  (printf "on chunk ~s,~s\n" x z)
+  (define chunk-xpos (* x CHUNKDX))
+  (define chunk-zpos (* z CHUNKDZ))
+  (with-handlers ([exn:fail?
+                   (lambda (exn) (fprintf (current-error-port)
+                                          "~s\n" (exn-message exn)))])
+    (define this-chunk (chunk-read/dir save-dir x z))
+    
+    (define pre-blocks (second (get-field/chain this-chunk '("" "Level" "Blocks"))))
+    (define post-blocks (make-bytes (* 16 16 128) 0))
+    
+    (for* ([zp (in-range CHUNKDZ)]
+           [xp (in-range CHUNKDX)])
+      (define xpos (+ chunk-xpos xp))
+      (define zpos (+ chunk-zpos zp))
+      (define adjust-y (inexact->exact
+                        (round (* 2
+                                  (+ (sin (* twopi (/ xpos 32)))
+                                     (sin (* twopi (/ zpos 32))))))))
+      (for ([y (in-range CHUNKDY)])
+        (define source-y (- y adjust-y))
+        (when (< 0 source-y CHUNKDY)
+          (regular-byte-set! post-blocks xp y zp 
+                             (regular-byte-ref pre-blocks xp source-y zp)))))
+    
+    (define new-chunk (set-field/chain this-chunk '("" "Level" "Blocks")
+                                       (lambda (dc) `(bytearray ,post-blocks))))
+    
+    (chunk-overwrite/dir save-dir x z new-chunk)))
 
 (for* ([x (in-range (- abs-x 20) (+ abs-x 1))]
        [z (in-range (- abs-z 10) (+ abs-z 11))])
-  (big-valley x z (- abs-xpos 160) 475 abs-zpos 441))
+  (sine-waves x z))
 
+#;(shuffle (for/list ([i (in-range 30)]) i))
 
 ;; simple round-trip:
 #|
