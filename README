@@ -1,3 +1,7 @@
+EDIT: GNARR! New Anvil file format invalidates this tool entirely. I could 
+fix it, but I'm not planning on it.
+
+
 This repo contains Racket code for reading/writing minecraft .mcr files.
 It includes a command-line interface, minecraft-cli.rkt.
 
