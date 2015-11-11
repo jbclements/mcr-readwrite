@@ -56,4 +56,3 @@
   (- a (modulo a da)))
 
 (define test-aclist (add empty 234 222 -2134 'booger))
-()

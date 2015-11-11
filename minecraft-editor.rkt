@@ -1,7 +1,8 @@
 #lang racket
 
 
-(require "minecraft-mcr-reader.rkt"
+(require "data-skeleton.rkt"
+         "minecraft-mcr-reader.rkt"
          rackunit)
 
 (define CHUNKDHORIZ 16)
@@ -9,7 +10,6 @@
 (define CHUNKDY 128)
 (define CHUNKDZ CHUNKDHORIZ)
 
-(provide CHUNKDX CHUNKDY CHUNKDZ)
 
 (define REGIONDHORIZ 32)
 (define MAX-CHUNK-IDX (- REGIONDHORIZ 1))
@@ -23,11 +23,16 @@
 (define (chunk->rel-chunk a)
   (modulo a REGIONDHORIZ))
 
-(define nat? exact-nonnegative-integer?)
 (define maker-fun? (-> nat? nat? nat? nat?))
                   
 
-(provide/contract [posn->chunk (-> inexact? integer?)]
+
+(provide CHUNKDX CHUNKDY CHUNKDZ REGIONDHORIZ block-names
+         block-name->num
+         get-field/chain
+         set-field/chain)
+
+(provide/contract [posn->chunk (-> real? integer?)]
                   [chunk->region (-> integer? integer?)]
                   [chunk->rel-chunk (-> integer? integer?)]
                   [chunk-read/dir (-> path-string?
@@ -39,19 +44,6 @@
                                            integer?
                                            blank-compound-mc-thing? 
                                            void?)]
-                  
-                  
-                  [get-field (-> mc-thing? 
-                                 string?
-                                 mc-thing?)]
-                  [set-field (-> mc-thing? 
-                                 string?
-                                 (-> mc-thing? mc-thing?)
-                                 mc-thing?)]
-                  [set-field/chain (-> mc-thing? 
-                                       (listof string?)
-                                       (-> mc-thing? mc-thing?)
-                                       mc-thing?)]
                   [raw-nums-read (-> input-port? 
                                      bytes?)]
                   [raw-nums->blocks (-> port?
@@ -62,9 +54,6 @@
                   [regular-byte-set! (-> bytes? nat? nat? nat? nat? void?)]
                   [half-byte-ref (-> bytes? nat? nat? nat? nat?)]
                   [half-byte-set! (-> bytes? nat? nat? nat? nat? void?)]
-                  [get-field/chain (-> mc-thing?
-                                       (listof string?)
-                                       mc-thing?)]
                   [wrap-chunk (-> bytes? bytes? bytes? bytes? 
                                   integer? integer? nat?
                                   mc-thing?)]
@@ -79,7 +68,11 @@
                   
                   [blocks-display (-> mc-thing? port? void?)]
                   [block-bytes-display (-> bytes? port? void?)]
-                  )
+                  
+                  
+
+                  [maker->block-bytes (-> (-> nat? nat? nat? nat?)
+                                          bytes?)])
 
 
 ;; given the save directory and the desired chunk indices, return
@@ -105,10 +98,13 @@
            chunk-x chunk-z xpos zpos))
   (chunk-overwrite region-file rel-cx rel-cz new-chunk))
 
+;; given a directory and a pair of absolute chunk numbers, return
+;; the path to the file containing that chunk.
 (define (check-and-find-region-file directory-name chunk-x chunk-z)
   (define region-directory (build-path directory-name "region"))
   (unless (directory-exists? region-directory)
-    (raise-type-error 'read-chunk/dir "name of directory containing region subdirectory"))
+    (raise-type-error 'read-chunk/dir "name of directory containing region subdirectory" 0
+                      directory-name chunk-x chunk-z))
   (define rx (chunk->region chunk-x))
   (define rz (chunk->region chunk-z))
   (define region-file (build-path region-directory (format "r.~s.~s.mcr" rx rz)))
@@ -116,44 +112,6 @@
     (error 'read-chunk/dir "desired region file ~s doesn't exist in the region directory"
            region-file))
   region-file)
-
-
-;; dig through a sequence of named fields 
-(define (get-field compound name)
-  (match compound
-    [`(compound . ,fields)
-     (let loop ([fields fields])
-       (cond [(empty? fields) (error 'get-foo "field not found: ~s" name)]
-             [else (match (first fields)
-                     [`(named ,this-name ,val)
-                      (cond [(string=? name this-name) val]
-                            [else (loop (cdr fields))])]
-                     [other (error 'get-field "not a named field: ~e" other)])]))]
-    [other (error 'get-foo "not a compound object")]))
-
-;; functionally update a named field within a compound object
-(define (set-field compound name thunk)
-  (match compound
-    [`(compound . ,fields)
-     (cons 
-      'compound
-      (let loop ([fields fields])
-        (cond [(empty? fields) (error 'get-foo "field not found: ~s" name)]
-              [else (match (first fields)
-                      [`(named ,this-name ,val)
-                       (cond [(string=? name this-name) (cons `(named ,this-name 
-                                                                      ,(thunk val))
-                                                              (rest fields))]
-                             [else (cons (first fields)
-                                         (loop (rest fields)))])]
-                      [other (error 'get-foo "not a named field: ~s" other)])])))]
-    [other (error 'get-foo "not a compound object")]))
-
-(define (set-field/chain compound name-list thunk)
-  (cond [(empty? (rest name-list))
-         (set-field compound (first name-list) thunk)]
-        [else (set-field compound (first name-list)
-                         (lambda (elt) (set-field/chain elt (rest name-list) thunk)))]))
 
 
 ;; convert x, y, and z into an index
@@ -226,9 +184,6 @@
               absolute-chunk-z
               update-tick))
 
-(provide/contract [maker->block-bytes (-> (-> nat? nat? nat? nat?)
-                                          bytes?)])
-
 (define (maker->block-bytes maker)
   (define block-bytes (make-bytes (* CHUNKDX CHUNKDY CHUNKDZ) 0))  
   ;; top layer is all air (already)
@@ -296,15 +251,6 @@
 
 
 
-
-
-
-
-;; find a named field given a list of field names to navigate down through
-(define (get-field/chain val lon)
-  (cond [(empty? lon) val]
-        [(get-field/chain (get-field val (first lon)) (rest lon))]))
-
 (define (blocks chunk)
   (get-field/chain chunk '("" "Level" "Blocks")))
 
@@ -366,19 +312,143 @@
 (define (discard-empties l)
   (filter (lambda (s) (not (string=? "" s))) l))
 
-(provide rip-out-bytearrays)
 
-(define (rip-out-bytearrays obj)
-  (match obj
-    [`(compound . ,nameds)
-     `(compound . ,(map rip-out-bytearrays/named nameds))]
-    [`(list ,tag . ,objs)
-     `(list ,tag . ,(map rip-out-bytearrays objs))]
-    [`(bytearray ,data)
-     `(bytearray (omitted-of-length ,(bytes-length data)))]
-    [other other]))
 
-(define (rip-out-bytearrays/named named)
-  (match named
-    [`(named ,name ,val)
-     `(named ,name ,(rip-out-bytearrays val))]))
+(define block-names
+  '#("Air"
+     "Stone"
+     "Grass Block"
+     "Dirt"
+     "Cobblestone"
+     "Wooden Planks"
+     "Saplings"
+     "Bedrock"
+     "Water"
+     "Stationary water"
+     "Lava"
+     "Stationary lava"
+     "Sand"
+     "Gravel"
+     "Gold Ore"
+     "Iron Ore"
+     "Coal Ore"
+     "Wood"
+     "Leaves"
+     "Sponge"
+     "Glass"
+     "Lapis Lazuli Ore"
+     "Lapis Lazuli Block"
+     "Dispenser"
+     "Sandstone"
+     "Note Block"
+     "Bed"
+     "Powered Rail"
+     "Detector Rail"
+     "Sticky Piston"
+     "Cobweb"
+     "Tall Grass"
+     "Dead Bush"
+     "Piston"
+     "Piston Extension"
+     "Wool"
+     "Block moved by Piston"
+     "Dandelion"
+     "Rose"
+     "Brown Mushroom"
+     "Red Mushroom"
+     "Block of Gold"
+     "Block of Iron"
+     "Double Slabs"
+     "Slabs"
+     "Bricks"
+     "TNT"
+     "Bookshelf"
+     "Moss Stone"
+     "Obsidian"
+     "Torch"
+     "Fire"
+     "Monster Spawner"
+     "Wooden Stairs"
+     "Chest"
+     "Redstone Wire"
+     "Diamond Ore"
+     "Block of Diamond"
+     "Crafting Table"
+     "Wheat Seeds"
+     "Farmland"
+     "Furnace"
+     "Burning Furnace"
+     "Sign Post"
+     "Wooden Door"
+     "Ladders"
+     "Rails"
+     "Cobblestone Stairs"
+     "Wall Sign"
+     "Lever"
+     "Stone Pressure Plate"
+     "Iron Door"
+     "Wooden Pressure Plate"
+     "Redstone Ore"
+     "Glowing Redstone Ore"
+     "Redstone Torch (\"off\" state)"
+     "Redstone Torch (\"on\" state)"
+     "Stone Button"
+     "Snow"
+     "Ice"
+     "Snow Block"
+     "Cactus"
+     "Clay Block"
+     "Sugar Cane"
+     "Jukebox"
+     "Fence"
+     "Pumpkin"
+     "Netherrack"
+     "Soul Sand"
+     "Glowstone Block"
+     "Portal"
+     "Jack-O-Lantern"
+     "Cake Block"
+     "Redstone Repeater (\"off\" state)"
+     "Redstone Repeater (\"on\" state)"
+     "Locked Chest"
+     "Trapdoor"
+     "Hidden Silverfish"
+     "Stone Bricks"
+     "Huge Brown Mushroom"
+     "Huge Red Mushroom"
+     "Iron Bars"
+     "Glass Pane"
+     "Melon"
+     "Pumpkin Stem"
+     "Melon Stem"
+     "Vines"
+     "Fence Gate"
+     "Brick Stairs"
+     "Stone Brick Stairs"
+     "Mycelium"
+     "Lily Pad"
+     "Nether Brick"
+     "Nether Brick Fence"
+     "Nether Brick Stairs"
+     "Nether Wart"
+     "Enchantment Table"
+     "Brewing Stand"
+     "Cauldron"
+     "End Portal"
+     "End Portal Frame"
+     "End Stone"
+     "Dragon Egg")
+)
+
+(define block-name-hash
+  (for/fold ([ht (hash)])
+    ([i (in-naturals)]
+     [name (in-vector block-names)])
+    (hash-set ht name i)))
+
+(define (block-name->num name)
+  (hash-ref block-name-hash name))
+
+(check-equal? (block-name->num "Tall Grass") 31)
+(check-equal? (block-name->num "Furnace") 61)
+(check-equal? (block-name->num "Dragon Egg") 122)

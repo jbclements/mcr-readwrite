@@ -1,51 +1,15 @@
 #lang racket
 
-(require rackunit)
-
 ;; I'm assuming that lengths are to be represented using 
 ;; unsigned bits...
 
 ;; I'm guessing we're using utf-8 encodings, or just sticking to ASCII
 
-(require file/gunzip
+(require "data-skeleton.rkt"
+         file/gunzip
          (planet soegaard/gzip))
 
 
-;; a named-mc-thing is (list 'named string thing)
-;; an mc-thing is either
-;; `(i8 ,number),
-;; `(i16 ,number),
-;; `(i32 ,number),
-;; `(i64 ,number),
-;; `(f32 ,number),
-;; `(f64 ,number),
-;; `(bytearray ,bytes),
-;; `(string ,string),
-;; `(list ,symbol ,mc-thing ...)
-;; `(compound ,named-mc-thing ...)
-
-
-(define nat? exact-nonnegative-integer?)
-
-(define-values (named-mc-thing? mc-thing?)
-  (flat-murec-contract 
-   ([named-mc-thing? (list/c 'named string? mc-thing?)]
-    [mc-thing? (or/c (cons/c 'compound (listof named-mc-thing?))
-                     (cons/c 'list 
-                             (cons/c symbol? (listof mc-thing?)))
-                     (list/c 'i8 integer?)
-                     (list/c 'i16 integer?)
-                     (list/c 'i32 integer?)
-                     (list/c 'i64 integer?)
-                     (list/c (symbols 'f32 'f64 'bytearray 'string)
-                             any/c))])
-   (values named-mc-thing? mc-thing?)))
-
-(define blank-compound-mc-thing?
-  (list/c 'compound
-          (list/c 'named "" mc-thing?)))
-
-(provide mc-thing? named-mc-thing? blank-compound-mc-thing?)
 
 
 ;; FILE I/O
@@ -61,6 +25,7 @@
                                        blank-compound-mc-thing?
                                        void?)]
                   [parse-player-file (-> path-string? named-mc-thing?)]
+                  [write-player-file! (-> named-mc-thing? path-string? void?)]
                   [parse-tag (-> input-port? named-mc-thing?)]
                   [write-tag (-> named-mc-thing? output-port? void?)])
 
@@ -196,10 +161,20 @@
 
 
 
+;; read a player file from disk
 (define (parse-player-file filename)
   (define path (cond [(string? filename) (string->path filename)]
                      [else filename]))
   (parse-tag (open-input-gz-file path)))
+
+
+;; write a player file to disk
+(define (write-player-file! player filename)
+  (define path (cond [(string? filename) (string->path filename)]
+                     [else filename]))
+  (define op (open-output-gz-file path))
+  (write-tag player op)
+  (close-output-port op))
 
 ;;
 ;;

@@ -141,8 +141,17 @@
            (regular-byte-set! post-blocks x y z 
                               (regular-byte-ref pre-blocks x y z))]
           [else ;; leave it as air...
-           (cond [(and (= x z 8))
-                  (regular-byte-set! post-blocks x y z 50)]
+           (cond [(and (= x z 10))
+                  (cond [(= 0 (modulo y 2)) (regular-byte-set! post-blocks x y z 50)]
+                        [else (regular-byte-set! post-blocks x y z 1)])]
+                 [(and (= x 7) (= z 7)) (cond [(= (modulo y 4) 1) 5]
+                                              [else 0])]
+                 [(and (= x 7) (= z 8)) (cond [(= (modulo y 4) 2) 5]
+                                              [else 0])]
+                 [(and (= x 8) (= z 8)) (cond [(= (modulo y 4) 3) 5]
+                                              [else 0])]
+                 [(and (= x 8) (= z 7)) (cond [(= (modulo y 4) 0) 5]
+                                              [else 0])]
                  [else (void)])]))
   
   post-blocks)
@@ -166,6 +175,11 @@
                      (lambda (exn) (fprintf (current-error-port)
                                             "~s\n" (exn-message exn)))])
       (chunk-overwrite/dir save-dir cx cz new-chunk))))
+
+
+(for* ([x (in-range (- abs-x 3) (+ abs-x 4))]
+       [z (in-range (- abs-z 3) (+ abs-z 4))])
+  (hollow-out x z))
 
 (define (highway x z)
   (printf "highway for ~s, ~s\n" x  z)
@@ -205,9 +219,6 @@
     
     (chunk-overwrite/dir save-dir x z new-chunk)))
 
-#;(for* ([x (in-range (- abs-x 3) (+ abs-x 4))]
-       [z (in-range (- abs-z 3) (+ abs-z 4))])
-  (hollow-out x z))
 
 #;(for ([z (in-range -30 30)])
   (ew-highway abs-x z))
@@ -328,7 +339,7 @@
     
     (chunk-overwrite/dir save-dir x z new-chunk)))
 
-(for* ([x (in-range (- abs-x 20) (+ abs-x 1))]
+#;(for* ([x (in-range (- abs-x 20) (+ abs-x 1))]
        [z (in-range (- abs-z 10) (+ abs-z 11))])
   (sine-waves x z))
 

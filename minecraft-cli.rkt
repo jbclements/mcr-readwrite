@@ -92,7 +92,7 @@
                           (pretty-print 
                            parsed)
                           (define posn (get-field/chain `(compound ,parsed) 
-                                                        '("" "Data" "Player" "Pos")))
+                                                        '("" "Pos")))
                           (define player-x (inexact->exact (floor (second (third posn)))))
                           (define player-z (inexact->exact (floor (second (fifth posn)))))
                           (define player-xchunk (floor (/ player-x CHUNKDX)))
